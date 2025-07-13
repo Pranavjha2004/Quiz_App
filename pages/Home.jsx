@@ -12,15 +12,13 @@ const Home = () => {
   const { difficulty, category, setDifficulty, setCategory } = useQuizContext();
   const navigate = useNavigate();
 
-  // Map custom categories to OpenTDB category IDs (case-insensitive)
   const categoryMap = {
-    general: 9, // General Knowledge
+    general: 9,
     history: 23,
-    science: 17, // Science & Nature
+    science: 17,
     sports: 21,
   };
 
-  // Map custom difficulties to OpenTDB difficulties
   const difficultyMap = {
     beginner: "easy",
     intermediate: "medium",
@@ -30,14 +28,12 @@ const Home = () => {
   const difficultyOptions = ["Beginner", "Intermediate", "Expert"];
   const categoryOptions = ["General", "History", "Science", "Sports"];
 
-  // Fetch session token on mount
   useEffect(() => {
     const fetchSessionToken = async () => {
       try {
         const response = await axios.get(
           "https://opentdb.com/api_token.php?command=request"
         );
-        console.log("Session Token Response:", response.data);
         if (response.data.response_code === 0) {
           setSessionToken(response.data.token);
         } else {
@@ -45,7 +41,6 @@ const Home = () => {
         }
       } catch (err) {
         setError("Failed to fetch session token. Please try again.");
-        console.error("Token Error:", err);
       }
     };
     fetchSessionToken();
@@ -55,9 +50,6 @@ const Home = () => {
     e.preventDefault();
     setError(null);
     setLoading(true);
-
-    // Debug context values
-    console.log("Form submitted:", { name, difficulty, category });
 
     if (!name || !difficulty || !category) {
       setError("Please enter your name and select a difficulty and category.");
@@ -72,25 +64,8 @@ const Home = () => {
     }
 
     try {
-      // Normalize category to lowercase for case-insensitive lookup
-      const normalizedCategory = category.toLowerCase();
-      const categoryId = categoryMap[normalizedCategory];
+      const categoryId = categoryMap[category.toLowerCase()];
       const apiDifficulty = difficultyMap[difficulty.toLowerCase()];
-
-      if (!categoryId) {
-        throw new Error(`Invalid category: ${category}`);
-      }
-      if (!apiDifficulty) {
-        throw new Error(`Invalid difficulty: ${difficulty}`);
-      }
-
-      console.log("Fetching questions with params:", {
-        amount: 10,
-        category: categoryId,
-        difficulty: apiDifficulty,
-        type: "multiple",
-        token: sessionToken,
-      });
 
       const response = await axios.get("https://opentdb.com/api.php", {
         params: {
@@ -102,22 +77,18 @@ const Home = () => {
         },
       });
 
-      console.log("API Response:", response.data);
-
       if (response.data.response_code !== 0) {
         if (response.data.response_code === 4) {
-          // Token exhausted, reset token
           const tokenResponse = await axios.get(
             `https://opentdb.com/api_token.php?command=reset&token=${sessionToken}`
           );
-          console.log("Token Reset Response:", tokenResponse.data);
           setSessionToken(tokenResponse.data.token);
           setError("Session token was exhausted. Please try again.");
           setLoading(false);
           return;
         } else if (response.data.response_code === 1) {
           setError(
-            `No questions available for category "${category}" and difficulty "${difficulty}". Try a different combination or fewer questions.`
+            `No questions available for category "${category}" and difficulty "${difficulty}". Try a different combination.`
           );
           setLoading(false);
           return;
@@ -125,13 +96,6 @@ const Home = () => {
         throw new Error(`API Error: ${response.data.response_code}`);
       }
 
-      if (!response.data.results || response.data.results.length === 0) {
-        setError("No questions returned from the API.");
-        setLoading(false);
-        return;
-      }
-
-      console.log("Navigating with questions:", response.data.results);
       navigate("/quiz", {
         state: {
           name,
@@ -143,22 +107,21 @@ const Home = () => {
       });
     } catch (err) {
       setError(err.message || "Failed to fetch questions. Please try again.");
-      console.error("Fetch Questions Error:", err);
       setLoading(false);
     }
   };
 
   return (
-    <div className="flex flex-col md:flex-row justify-between items-center w-full min-h-screen bg-zinc-900 text-white px-4 sm:px-8 md:px-36 lg:px-52 font-poppins">
-      {/* Title */}
-      <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold bg-gradient-to-r from-purple-500 to-pink-500 text-transparent bg-clip-text mb-8 md:mb-0">
+    <div className="min-h-screen w-full bg-zinc-900 text-white flex flex-col items-center justify-center px-4 sm:px-6 md:px-10 lg:px-20 py-10 overflow-x-hidden font-poppins">
+      {/* Heading */}
+      <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold text-center bg-gradient-to-r from-purple-500 to-pink-500 text-transparent bg-clip-text mb-8">
         Quiz Trivia
       </h1>
 
-      {/* Form Container */}
-      <div className="w-full sm:w-3/4 md:w-2/3 max-w-lg bg-zinc-800 rounded-xl shadow-2xl p-6 sm:p-8 md:p-10 transform hover:scale-105 transition-transform duration-300">
-        <form onSubmit={handleSubmit} className="flex flex-col gap-6 text-lg">
-          {/* Error Message */}
+      {/* Form Box */}
+      <div className="w-full sm:w-11/12 md:w-3/4 lg:w-1/2 bg-zinc-800 rounded-xl shadow-2xl p-5 sm:p-8 md:p-10 transform hover:scale-105 transition-transform duration-300">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-5 text-base sm:text-lg">
+          {/* Error/Loading */}
           {error && (
             <p className="text-red-400 bg-red-900/50 p-3 rounded-md">{error}</p>
           )}
@@ -169,54 +132,48 @@ const Home = () => {
           )}
 
           {/* Name Input */}
-          <div className="flex flex-col w-full">
-            <label className="flex flex-col gap-2 text-white font-medium">
-              Name:
-              <input
-                className="outline-none py-2 px-3 bg-transparent border-b-2 border-gray-400 text-white placeholder-gray-400 focus:border-purple-500 transition-colors duration-200"
-                name="name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                type="text"
-                placeholder="Enter Your Name..."
-                required
-              />
-            </label>
+          <div className="flex flex-col gap-1">
+            <label className="font-medium">Name:</label>
+            <input
+              type="text"
+              name="name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Enter Your Name..."
+              className="w-full py-2 px-3 bg-transparent border-b-2 border-gray-400 text-white placeholder-gray-400 focus:border-purple-500 outline-none transition-all"
+              required
+            />
           </div>
 
           {/* Difficulty Dropdown */}
-          <div className="flex flex-col w-full min-h-[60px]">
-            <label className="flex flex-col gap-2 text-white font-medium">
-              Difficulty:
-              <DropDown
-                label="Difficulty"
-                options={difficultyOptions}
-                selectedValue={difficulty}
-                setValue={setDifficulty}
-                id="difficulty"
-              />
-            </label>
+          <div className="flex flex-col gap-1">
+            <label className="font-medium">Difficulty:</label>
+            <DropDown
+              label="Difficulty"
+              options={difficultyOptions}
+              selectedValue={difficulty}
+              setValue={setDifficulty}
+              id="difficulty"
+            />
           </div>
 
           {/* Category Dropdown */}
-          <div className="flex flex-col w-full min-h-[60px]">
-            <label className="flex flex-col gap-2 text-white font-medium">
-              Category:
-              <DropDown
-                label="Category"
-                options={categoryOptions}
-                selectedValue={category}
-                setValue={setCategory}
-                id="category"
-              />
-            </label>
+          <div className="flex flex-col gap-1">
+            <label className="font-medium">Category:</label>
+            <DropDown
+              label="Category"
+              options={categoryOptions}
+              selectedValue={category}
+              setValue={setCategory}
+              id="category"
+            />
           </div>
 
           {/* Submit Button */}
           <button
             type="submit"
             disabled={loading || !sessionToken}
-            className="w-full mt-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-semibold rounded-md shadow-md hover:from-purple-600 hover:to-pink-600 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:bg-gray-600"
+            className="mt-4 w-full py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-semibold rounded-md shadow-md hover:from-purple-600 hover:to-pink-600 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:bg-gray-600"
           >
             Start Quiz
           </button>

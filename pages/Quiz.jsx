@@ -1,6 +1,12 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import he from "he";
+import ConfettiExplosion from "react-confetti-explosion";
+import { motion } from "framer-motion";
+import useSound from "use-sound";
+import tickSound from "../src/assets/tick.wav";
+import correctSfx from "../src/assets/correct.wav";
+import wrongSfx from "../src/assets/wrong.mp3";
 
 const categoryMap = {
   9: "General",
@@ -9,224 +15,257 @@ const categoryMap = {
   21: "Sports",
 };
 
+const QUESTION_TIME = 15;
+
 const Quiz = () => {
-  const location = useLocation();
+  const { name, difficulty, category, questions } = useLocation().state || {};
   const navigate = useNavigate();
-  const { name, difficulty, category, questions, sessionToken } = location.state || {};
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+
+  const [index, setIndex] = useState(0);
   const [score, setScore] = useState(0);
   const [userAnswers, setUserAnswers] = useState([]);
-  const [quizCompleted, setQuizCompleted] = useState(false);
   const [selectedAnswer, setSelectedAnswer] = useState(null);
-  const [isCorrect, setIsCorrect] = useState(null);
   const [disableButtons, setDisableButtons] = useState(false);
+  const [timer, setTimer] = useState(QUESTION_TIME);
+  const [showConfetti, setShowConfetti] = useState(false);
 
-  console.log("Quiz.jsx location.state:", location.state);
+  const [playTick] = useSound(tickSound, { volume: 0.3 });
+  const [playCorrect] = useSound(correctSfx);
+  const [playWrong] = useSound(wrongSfx);
 
-  // Shuffle answers
-  const getShuffledAnswers = (question) => {
-    const answers = [
-      ...question.incorrect_answers.map((ans) => he.decode(ans)),
-      he.decode(question.correct_answer),
+  const currentQuestion = questions[index];
+  const answers = React.useMemo(() => {
+    const all = [
+      ...currentQuestion.incorrect_answers.map((a) => he.decode(a)),
+      he.decode(currentQuestion.correct_answer),
     ];
-    return answers.sort(() => Math.random() - 0.5);
-  };
+    return all.sort(() => Math.random() - 0.5);
+  }, [currentQuestion]);
 
-  // Handle answer selection
+  // Timer effect
+  useEffect(() => {
+    if (showConfetti || timer <= 0) return;
+    const interval = setInterval(() => {
+      setTimer((t) => t - 1);
+      playTick();
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [timer, showConfetti]);
+
+  // Answer handler
   const handleAnswer = (answer) => {
     if (disableButtons) return;
 
-    const currentQuestion = questions[currentQuestionIndex];
-    const correctAnswer = he.decode(currentQuestion.correct_answer);
-    const answerIsCorrect = answer === correctAnswer;
+    const correct = he.decode(currentQuestion.correct_answer);
+    const isCorrect = answer === correct;
 
     setSelectedAnswer(answer);
-    setIsCorrect(answerIsCorrect);
     setDisableButtons(true);
+    isCorrect ? playCorrect() : playWrong();
 
-    setUserAnswers([
-      ...userAnswers,
+    // Vibrate on mobile
+    if ("vibrate" in navigator) {
+      navigator.vibrate(isCorrect ? 100 : [100, 100, 100]);
+    }
+
+    setUserAnswers((prev) => [
+      ...prev,
       {
         question: he.decode(currentQuestion.question),
-        selectedAnswer: answer,
-        correctAnswer,
-        isCorrect: answerIsCorrect,
+        selectedAnswer: answer || "No answer",
+        correctAnswer: correct,
+        isCorrect,
       },
     ]);
 
-    if (answerIsCorrect) {
-      setScore(score + 1);
-    }
+    if (isCorrect) setScore((s) => s + 1);
 
-    // Move to next question or complete quiz after 1-second delay
     setTimeout(() => {
-      if (currentQuestionIndex + 1 < questions.length) {
-        setCurrentQuestionIndex(currentQuestionIndex + 1);
+      if (index + 1 < questions.length) {
+        setIndex((i) => i + 1);
         setSelectedAnswer(null);
-        setIsCorrect(null);
         setDisableButtons(false);
+        setTimer(QUESTION_TIME);
       } else {
-        setQuizCompleted(true);
+        setShowConfetti(true);
       }
     }, 1000);
   };
 
-  // Restart quiz
-  const restartQuiz = () => {
+  const restart = () => {
+    setShowConfetti(false);
+    setIndex(0);
+    setScore(0);
+    setUserAnswers([]);
+    setSelectedAnswer(null);
+    setDisableButtons(false);
+    setTimer(QUESTION_TIME);
     navigate("/");
   };
 
-  // Handle empty questions
-  if (!questions || questions.length === 0) {
-    return (
-      <div className="w-full min-h-screen bg-zinc-900 text-white font-poppins">
-        <h1 className="text-3xl sm:text-4xl p-10">
-          Welcome,
-          <br />
-          <span className="font-bold bg-gradient-to-r from-purple-500 to-pink-500 text-transparent bg-clip-text">
-            {name || "Guest"}
-          </span>
-        </h1>
-        <p className="px-10 text-lg">No questions available. Please try a different category or difficulty.</p>
-        <button
-          onClick={restartQuiz}
-          className="mx-10 mt-6 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-semibold rounded-md shadow-md hover:from-purple-600 hover:to-pink-600 transition-all duration-300"
-        >
-          Back to Home
-        </button>
-      </div>
-    );
-  }
+  const progress = ((index + (selectedAnswer !== null || timer === 0 ? 1 : 0)) / questions.length) * 100;
 
-  // Display results
-  if (quizCompleted) {
-    return (
-      <div className="w-full min-h-screen bg-zinc-900 text-white font-poppins">
-        <h1 className="text-3xl sm:text-4xl p-10">
-          Quiz Results,
-          <br />
-          <span className="font-bold bg-gradient-to-r from-purple-500 to-pink-500 text-transparent bg-clip-text">
-            {name || "Guest"}
-          </span>
-        </h1>
-        <div className="px-10 max-w-2xl mx-auto">
-          <p className="mb-2 text-lg">
-            <strong>Difficulty:</strong> {difficulty || "Not selected"}
-          </p>
-          <p className="mb-2 text-lg">
-            <strong>Category:</strong> {category || "Not selected"}
-          </p>
-          <p className="mb-6 text-lg">
-            <strong>Score:</strong> {score} / {questions.length}
-          </p>
-          <h2 className="text-2xl font-semibold mb-4">Your Answers</h2>
-          <ul className="space-y-4">
-            {userAnswers.map((answer, index) => (
-              <li
-                key={index}
-                className="p-4 border border-gray-700 rounded-md bg-zinc-800"
-              >
-                <p className="mb-2">
-                  <strong>Question {index + 1}:</strong> {answer.question}
-                </p>
-                <p className="mb-2">
-                  <strong>Your Answer:</strong> {answer.selectedAnswer}
-                </p>
-                <p className="mb-2">
-                  <strong>Correct Answer:</strong> {answer.correctAnswer}
-                </p>
-                <p>
-                  <strong>Result:</strong>{" "}
-                  {answer.isCorrect ? (
-                    <span className="text-green-400">Correct</span>
-                  ) : (
-                    <span className="text-red-400">Incorrect</span>
-                  )}
-                </p>
-              </li>
-            ))}
-          </ul>
-          <button
-            onClick={restartQuiz}
-            className="mt-6 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-semibold rounded-md shadow-md hover:from-purple-600 hover:to-pink-600 transition-all duration-300"
-          >
-            Start New Quiz
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // ⌨️ Keyboard controls
+  const handleKeyDown = useCallback(
+    (e) => {
+      if (showConfetti || disableButtons) return;
 
-  // Display current question
-  const currentQuestion = questions[currentQuestionIndex];
-  const answers = getShuffledAnswers(currentQuestion);
-  const correctAnswer = he.decode(currentQuestion.correct_answer);
+      const key = e.key;
+
+      if (key >= "1" && key <= `${answers.length}`) {
+        handleAnswer(answers[parseInt(key) - 1]);
+      }
+
+      if (key === "ArrowRight" && selectedAnswer !== null && index + 1 < questions.length) {
+        setIndex((prev) => prev + 1);
+        setSelectedAnswer(null);
+        setDisableButtons(false);
+        setTimer(QUESTION_TIME);
+      }
+
+      if (key === "ArrowLeft" && index > 0) {
+        setIndex((prev) => prev - 1);
+        setSelectedAnswer(null);
+        setDisableButtons(false);
+        setTimer(QUESTION_TIME);
+      }
+
+      if (key === "Enter" && selectedAnswer !== null) {
+        handleAnswer(selectedAnswer);
+      }
+    },
+    [answers, selectedAnswer, disableButtons, showConfetti, index]
+  );
+
+  useEffect(() => {
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleKeyDown]);
 
   return (
-    <div className="w-full min-h-screen bg-zinc-900 text-white font-poppins">
-      <h1 className="text-3xl sm:text-4xl p-10">
-        Welcome,
-        <br />
-        <span className="font-bold bg-gradient-to-r from-purple-500 to-pink-500 text-transparent bg-clip-text">
+    <div className="min-h-screen bg-zinc-900 text-white px-4 sm:px-6 md:px-10 py-8 font-poppins overflow-auto">
+      <h1 className="text-3xl sm:text-4xl mb-4">
+        Welcome, <br />
+        <span className="font-bold bg-gradient-to-r from-purple-500 to-pink-500 bg-clip-text text-transparent">
           {name || "Guest"}
         </span>
       </h1>
-      <div className="px-4 sm:px-8 md:px-10 max-w-2xl mx-auto">
-        <div className="mb-6">
-          <p className="mb-2 text-lg">
-            <strong>Difficulty:</strong> {difficulty || "Not selected"}
-          </p>
-          <p className="mb-2 text-lg">
-            <strong>Category:</strong> {category || "Not selected"}
-          </p>
-          <p className="mb-2 text-lg">
-            <strong>Question {currentQuestionIndex + 1} of {questions.length}</strong>
-          </p>
-          <p className="mb-2 text-lg">
-            <strong>Score:</strong> {score}
-          </p>
-        </div>
-        <div className="p-6 border border-gray-700 rounded-xl bg-zinc-800 shadow-lg animate-fade-in">
-          <p className="mb-2 text-base sm:text-lg">
-            <strong>Category:</strong>{" "}
-            {categoryMap[currentQuestion.category] || currentQuestion.category}
-          </p>
-          <p className="mb-6 text-lg sm:text-xl font-medium">
-            {he.decode(currentQuestion.question)}
-          </p>
-          <div className="grid grid-cols-1 gap-3 sm:gap-4">
-            {answers.map((answer, index) => (
-              <button
-                key={index}
-                onClick={() => handleAnswer(answer)}
-                disabled={disableButtons}
-                className={`w-full px-4 py-3 text-left border rounded-lg bg-zinc-700 text-white font-medium hover:bg-indigo-600 hover:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all duration-200 ${
-                  selectedAnswer === answer
-                    ? answer === correctAnswer
-                      ? "border-green-400 bg-green-900/30"
-                      : "border-red-400 bg-red-900/30"
-                    : "border-gray-600"
-                } ${disableButtons ? "opacity-70 cursor-not-allowed" : ""}`}
-              >
-                {answer}
-              </button>
-            ))}
-          </div>
-        </div>
+
+      {/* Progress Bar */}
+      <div className="w-full bg-gray-700 rounded-full h-3 mb-4 overflow-hidden">
+        <motion.div
+          className="bg-gradient-to-r from-purple-500 to-pink-500 h-full"
+          initial={{ width: 0 }}
+          animate={{ width: `${progress}%` }}
+          transition={{ duration: 0.5 }}
+        />
       </div>
+
+      {/* Timer */}
+      {!showConfetti && (
+        <p className="text-base sm:text-lg mb-2">
+          Time left: <span className="font-semibold">{timer}s</span>
+        </p>
+      )}
+
+      {/* Confetti and Final Result */}
+      {showConfetti ? (
+        <>
+          <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+            <ConfettiExplosion
+              force={0.9}
+              duration={3000}
+              particleCount={200}
+              width={window.innerWidth}
+            />
+          </div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4 }}
+            className="max-w-3xl mx-auto"
+          >
+            <h2 className="text-2xl sm:text-3xl mb-4">🎉 All Done!</h2>
+            <p className="mb-2">Difficulty: {difficulty}</p>
+            <p className="mb-2">Category: {category}</p>
+            <p className="mb-4">Score: {score} / {questions.length}</p>
+
+            <ul className="space-y-3">
+              {userAnswers.map((a, i) => (
+                <motion.li
+                  key={i}
+                  className="p-3 border border-gray-700 rounded-lg bg-zinc-800 break-words"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.1 * i }}
+                >
+                  <p><strong>Q{i + 1}:</strong> {a.question}</p>
+                  <p>Your: {a.selectedAnswer}</p>
+                  <p>Correct: {a.correctAnswer}</p>
+                  <p>
+                    Result:{" "}
+                    {a.isCorrect ? (
+                      <span className="text-green-400">Correct</span>
+                    ) : (
+                      <span className="text-red-400">Incorrect</span>
+                    )}
+                  </p>
+                </motion.li>
+              ))}
+            </ul>
+
+            <button
+              onClick={restart}
+              className="mt-6 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-semibold rounded-md shadow-md hover:from-purple-600 hover:to-pink-600 transition-all duration-300"
+            >
+              Return to Home
+            </button>
+          </motion.div>
+        </>
+      ) : (
+        <motion.div
+          key={index}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+          className="max-w-3xl mx-auto"
+        >
+          <p className="text-base sm:text-lg mb-2">
+            Difficulty: {difficulty} | Category: {categoryMap[currentQuestion.category]}
+          </p>
+          <p className="text-base sm:text-lg mb-4">
+            Question {index + 1} / {questions.length}
+          </p>
+
+          <div className="p-5 bg-zinc-800 border border-gray-700 rounded-xl shadow-md">
+            <p className="text-lg font-medium mb-6 break-words">
+              {he.decode(currentQuestion.question)}
+            </p>
+            <div className="grid grid-cols-1 gap-3">
+              {answers.map((ans, i) => (
+                <motion.button
+                  key={i}
+                  onClick={() => handleAnswer(ans)}
+                  disabled={disableButtons}
+                  whileTap={{ scale: 0.97 }}
+                  className={`w-full px-4 py-3 text-left border rounded-lg font-medium break-words transition duration-200 ${
+                    selectedAnswer === ans
+                      ? ans === he.decode(currentQuestion.correct_answer)
+                        ? "bg-green-900/30 border-green-400"
+                        : "bg-red-900/30 border-red-400"
+                      : "bg-zinc-700 border-gray-600 hover:bg-indigo-600 hover:border-indigo-500"
+                  } ${disableButtons ? "opacity-70 cursor-not-allowed" : ""}`}
+                >
+                  {ans}
+                </motion.button>
+              ))}
+            </div>
+          </div>
+        </motion.div>
+      )}
     </div>
   );
 };
-
-// Fade-in animation for questions
-const styles = `
-  @keyframes fade-in {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-  .animate-fade-in {
-    animation: fade-in 0.3s ease-out;
-  }
-`;
 
 export default Quiz;
